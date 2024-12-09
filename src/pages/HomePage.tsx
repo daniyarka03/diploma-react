@@ -36,7 +36,7 @@ const HomePage = () => {
             Home
             <div>
                 {listExercises.map((exercise, index) => (
-                    <Link to={"/menu/pushups"}>
+                    <Link to={"/menu/sitdowns"}>
                         <ExerciseCard
                             key={index}
                             exerciseName={exercise.exerciseName}
