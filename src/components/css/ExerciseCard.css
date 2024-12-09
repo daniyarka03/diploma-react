@@ -1,0 +1,28 @@
+.exercise-card {
+    background-color: #E7F2F9;
+    border-radius: 9px;
+    max-width: 400px;
+    width: 100%;
+    min-width: 200px;
+    margin: 0 auto;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.exercise-card__title {
+    text-align: left;
+    font-weight: 800;
+}
+
+.exercise-card__count-record {
+    display: block;
+    text-align: left;
+    font-weight: 700;
+    margin-top: 5px;
+}
+
+.exercise-card__last-activity {
+    display: block;
+    text-align: right;
+    margin-top: 10px;
+}
