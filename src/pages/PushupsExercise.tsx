@@ -3,30 +3,33 @@ import { Pose, POSE_CONNECTIONS, Results } from '@mediapipe/pose';
 import { Camera } from '@mediapipe/camera_utils';
 import { useNavigate } from 'react-router-dom';
 import pointSound from '../assets/point-sound.mp3';
-// Import placeholder sounds for level completion (you'll replace these)
 import levelCompleteSound from '../assets/level-complete.mp3';
-import "./css/SitdownsExercise.css";
+import "./css/PushupsExercise.css";
 import { drawConnectors, drawLandmarks } from '@mediapipe/drawing_utils';
 
 // Define types for our component
 type LandmarkPoint = {
-  x: number;
-  y: number;
-  z: number;
-  visibility?: number;
+    x: number;
+    y: number;
+    z: number;
+    visibility?: number;
 };
 
-type SquatState = {
-  phase: 'INITIAL' | 'SQUATTING' | 'BOTTOM_REACHED' | 'STANDING';
-  lastPhaseChangeTime: number;
+type PushupState = {
+    phase: 'INITIAL' | 'GOING_DOWN' | 'BOTTOM_REACHED' | 'GOING_UP';
+    lastPhaseChangeTime: number;
 };
 
-const SitdownsExercise = (): JSX.Element => {
+const PushupsExercise = (): JSX.Element => {
     const navigate = useNavigate();
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const poseRef = useRef<Pose | null>(null);
     const cameraRef = useRef<Camera | null>(null);
+    const pushupStateRef = useRef<PushupState>({
+        phase: 'INITIAL',
+        lastPhaseChangeTime: Date.now()
+    });
 
     const [count, setCount] = useState<number>(0);
     const [status, setStatus] = useState<string>('Press Start to begin');
@@ -34,20 +37,18 @@ const SitdownsExercise = (): JSX.Element => {
     const [countdown, setCountdown] = useState<number | null>(null);
     const [stopwatch, setStopwatch] = useState<number>(0);
     const [isExerciseActive, setIsExerciseActive] = useState<boolean>(false);
-    const audioRef = useRef<HTMLAudioElement>(new Audio('/point-sound.mp3'));
-    const levelAudioRef = useRef<HTMLAudioElement>(new Audio('/level-complete.mp3'));
     const stopwatchRef = useRef<number | null>(null);
 
     // Add level tracking
-    const levelGoals: number[] = [20, 45, 60];
+    const levelGoals: number[] = [10, 20, 30];
     const [currentLevelIndex, setCurrentLevelIndex] = useState<number>(0);
     const [levelGoal, setLevelGoal] = useState<number>(levelGoals[0]);
     const [levelsCompleted, setLevelsCompleted] = useState<boolean[]>([false, false, false]);
     const [showLevelComplete, setShowLevelComplete] = useState<boolean>(false);
 
     const VIDEO_CONFIG = {
-        width: 360,  // уменьшили с 480
-        height: 360, // сохраняем квадратный формат
+        width: 360,
+        height: 360,
         facingMode: 'user' as const
     };
 
@@ -57,56 +58,78 @@ const SitdownsExercise = (): JSX.Element => {
         return angle > 180 ? 360 - angle : angle;
     }, []);
 
-    // Функция для очистки ресурсов
+    // Function to clean up resources
     const cleanup = useCallback((): void => {
         if (cameraRef.current) {
-            cameraRef.current.stop();
+            try {
+                cameraRef.current.stop();
+            } catch (e) {
+                console.error("Error stopping camera:", e);
+            }
             cameraRef.current = null;
         }
+        
         if (poseRef.current) {
-            poseRef.current.close();
+            try {
+                poseRef.current.close();
+            } catch (e) {
+                console.error("Error closing pose:", e);
+            }
             poseRef.current = null;
         }
+        
         if (stopwatchRef.current) {
             clearInterval(stopwatchRef.current);
             stopwatchRef.current = null;
         }
     }, []);
 
+    // Function to finish exercise
     const finishExercise = useCallback((): void => {
         cleanup();
+        // Save the result to localStorage
         if (count > 0) {
             const now = new Date();
             const trainingResult = {
                 date: now.toISOString(),
                 count: count,
                 formattedDate: `${now.toLocaleDateString()} ${now.toLocaleTimeString()}`,
-                type: 'sitdowns'
+                type: 'pushups'
             };
 
+            // Get existing training history or initialize new array
             const trainingHistory = JSON.parse(localStorage.getItem('trainingHistory') || '[]');
             trainingHistory.push(trainingResult);
 
+            // Save updated history
             localStorage.setItem('trainingHistory', JSON.stringify(trainingHistory));
         }
+        
+        // Navigate to results page with the count
         window.location.href = `/results?count=${count}`;
-    }, [cleanup, navigate, count]);
+    }, [cleanup, count]);
 
-    const checkStandingPosition = useCallback((landmarks: LandmarkPoint[]): boolean => {
-        const [leftHip, rightHip, leftKnee, rightKnee, leftAnkle, rightAnkle] =
-            [23, 24, 25, 26, 27, 28].map(index => landmarks[index]);
+    // Check if user is in plank position (starting position for pushups)
+    const checkPlankPosition = useCallback((landmarks: LandmarkPoint[]): boolean => {
+        const [leftShoulder, rightShoulder, leftElbow, rightElbow, leftWrist, rightWrist, leftHip, rightHip] =
+            [11, 12, 13, 14, 15, 16, 23, 24].map(index => landmarks[index]);
 
-        const verticalTolerance = 0.15;
-        const hipsAboveKnees = leftHip.y < leftKnee.y && rightHip.y < rightKnee.y;
-        const kneesAboveAnkles = leftKnee.y < leftAnkle.y && rightKnee.y < rightAnkle.y;
-        const legsAreStraight =
-            Math.abs(leftHip.x - leftKnee.x) < verticalTolerance &&
-            Math.abs(leftKnee.x - leftAnkle.x) < verticalTolerance &&
-            Math.abs(rightHip.x - rightKnee.x) < verticalTolerance &&
-            Math.abs(rightKnee.x - rightAnkle.x) < verticalTolerance;
+        // Check if body is straight (shoulders and hips aligned)
+        const isBodyStraight =
+            Math.abs((leftShoulder.y + rightShoulder.y) / 2 - (leftHip.y + rightHip.y) / 2) < 0.1;
 
-        return hipsAboveKnees && kneesAboveAnkles && legsAreStraight;
-    }, []);
+        // Check if arms are extended but not completely straight (slight bend in elbows)
+        const leftArmAngle = calculateAngle(leftShoulder, leftElbow, leftWrist);
+        const rightArmAngle = calculateAngle(rightShoulder, rightElbow, rightWrist);
+        const areArmsExtended = leftArmAngle > 150 && rightArmAngle > 150;
+
+        // Check if hands are positioned under shoulders
+        const areHandsUnderShoulders =
+            Math.abs(leftWrist.x - leftShoulder.x) < 0.1 &&
+            Math.abs(rightWrist.x - rightShoulder.x) < 0.1;
+
+        return isBodyStraight && areArmsExtended && areHandsUnderShoulders;
+    }, [calculateAngle]);
 
     // Check for level completion when count changes
     useEffect(() => {
@@ -116,8 +139,8 @@ const SitdownsExercise = (): JSX.Element => {
         if (count >= levelGoal && currentLevelIndex < levelGoals.length && !levelsCompleted[currentLevelIndex]) {
             // Play level completion sound
             try {
-                levelAudioRef.current = new Audio(levelCompleteSound);
-                levelAudioRef.current.play();
+                const sound = new Audio(levelCompleteSound);
+                sound.play();
             } catch (error) {
                 console.error('Error playing level complete sound:', error);
             }
@@ -131,7 +154,7 @@ const SitdownsExercise = (): JSX.Element => {
             setShowLevelComplete(true);
             setTimeout(() => setShowLevelComplete(false), 3000);
 
-            // If this is the max level (60 sitdowns), navigate to results
+            // If this is the max level (30 pushups), navigate to results
             if (currentLevelIndex === levelGoals.length - 1) {
                 setTimeout(() => {
                     cleanup();
@@ -157,6 +180,9 @@ const SitdownsExercise = (): JSX.Element => {
                 if (prev !== null && prev <= 1) {
                     clearInterval(countdownInterval);
                     setIsExerciseActive(true);
+                    setStatus('Get in plank position'); // Update status when exercise begins
+                    pushupStateRef.current.phase = 'INITIAL'; // Reset phase
+                    pushupStateRef.current.lastPhaseChangeTime = Date.now();
                     stopwatchRef.current = window.setInterval(() => {
                         setStopwatch(prev => prev + 1);
                     }, 1000);
@@ -173,7 +199,7 @@ const SitdownsExercise = (): JSX.Element => {
         return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     };
 
-    // Эффект для обработки visibility change
+    // Effect for handling visibility change
     useEffect(() => {
         const handleVisibilityChange = (): void => {
             if (document.hidden && isExerciseActive) {
@@ -189,7 +215,7 @@ const SitdownsExercise = (): JSX.Element => {
         };
     }, [cleanup, navigate, isExerciseActive]);
 
-    // Эффект для обработки beforeunload
+    // Effect for handling beforeunload
     useEffect(() => {
         const handleBeforeUnload = (): void => {
             cleanup();
@@ -199,27 +225,28 @@ const SitdownsExercise = (): JSX.Element => {
 
         return () => {
             window.removeEventListener('beforeunload', handleBeforeUnload);
-            cleanup();
         };
     }, [cleanup]);
 
+    // Main useEffect for setting up camera and pose detection
     useEffect(() => {
+        // Don't initialize camera and pose detection until user clicks "Start"
+        if (!isStarted) return;
+        
         const videoElement = videoRef.current;
         const canvasElement = canvasRef.current;
-        
+
         if (!videoElement || !canvasElement) return;
-        
+
         const canvasCtx = canvasElement.getContext('2d');
         if (!canvasCtx) return;
 
         canvasElement.width = VIDEO_CONFIG.width;
         canvasElement.height = VIDEO_CONFIG.height;
-
-        const squatState: SquatState = {
-            phase: 'INITIAL',
-            lastPhaseChangeTime: Date.now()
-        };
-
+        
+        // Only initialize if we don't already have a pose instance
+        console.log('Initializing camera and pose detection');
+        
         const pose = new Pose({
             locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
         });
@@ -236,33 +263,17 @@ const SitdownsExercise = (): JSX.Element => {
             if (!results.poseLandmarks || !isExerciseActive) return;
 
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-
             canvasCtx.imageSmoothingEnabled = true;
 
-            const videoWidth = results.image.width;
-            const videoHeight = results.image.height;
+            // Draw video frame
+            canvasCtx.drawImage(
+                results.image, 
+                0, 0, 
+                canvasElement.width, 
+                canvasElement.height
+            );
 
-            // Вычисляем размеры для сохранения пропорций
-            let drawWidth = canvasElement.width;
-            let drawHeight = canvasElement.height;
-            const aspectRatio = videoWidth / videoHeight;
-
-            if (aspectRatio > 1) {
-                drawHeight = drawWidth / aspectRatio;
-            } else {
-                drawWidth = drawHeight * aspectRatio;
-            }
-
-            // Центрируем изображение
-            const offsetX = (canvasElement.width - drawWidth) / 2;
-            const offsetY = (canvasElement.height - drawHeight) / 2;
-
-            canvasCtx.drawImage(results.image, offsetX, offsetY, canvasElement.width, canvasElement.height);
-
-            const landmarks = results.poseLandmarks;
-            const [leftHip, leftKnee, leftAnkle, rightHip, rightKnee, rightAnkle] =
-                [23, 25, 27, 24, 26, 28].map(index => landmarks[index]);
-
+            // Draw pose landmarks
             drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {
                 color: '#00FF00',
                 lineWidth: 3,
@@ -273,61 +284,63 @@ const SitdownsExercise = (): JSX.Element => {
                 radius: 3,
             });
 
-            const leftKneeAngle = calculateAngle(leftHip, leftKnee, leftAnkle);
-            const rightKneeAngle = calculateAngle(rightHip, rightKnee, rightAnkle);
+            const landmarks = results.poseLandmarks;
+            const [leftShoulder, rightShoulder, leftElbow, rightElbow, leftWrist, rightWrist] =
+                [11, 12, 13, 14, 15, 16].map(index => landmarks[index]);
+
+            const leftElbowAngle = calculateAngle(leftShoulder, leftElbow, leftWrist);
+            const rightElbowAngle = calculateAngle(rightShoulder, rightElbow, rightWrist);
 
             const currentTime = Date.now();
             const MIN_PHASE_DURATION = 500;
 
-            const isFullSquat =
-                leftKneeAngle < 130 &&
-                rightKneeAngle < 130 &&
-                leftKnee.y > leftHip.y &&
-                rightKnee.y > rightHip.y &&
-                leftAnkle.y > leftHip.y &&
-                rightAnkle.y > rightHip.y;
+            // Check if user is at the bottom of the pushup
+            const isBottomPosition =
+                leftElbowAngle < 90 &&
+                rightElbowAngle < 90;
 
-            const isStanding = checkStandingPosition(landmarks);
+            // Check if user is in plank/up position
+            const isUpPosition = checkPlankPosition(landmarks);
 
-            switch (squatState.phase) {
+            switch (pushupStateRef.current.phase) {
                 case 'INITIAL':
-                    if (isStanding) {
-                        setStatus('Start squatting');
-                    }
-                    if (isFullSquat) {
-                        squatState.phase = 'SQUATTING';
-                        squatState.lastPhaseChangeTime = currentTime;
-                        setStatus('Low point of squat');
+                    if (isUpPosition) {
+                        setStatus('Start going down');
+                        pushupStateRef.current.phase = 'GOING_DOWN';
+                        pushupStateRef.current.lastPhaseChangeTime = currentTime;
+                    } else {
+                        setStatus('Get in plank position');
                     }
                     break;
 
-                case 'SQUATTING':
-                    if (currentTime - squatState.lastPhaseChangeTime > MIN_PHASE_DURATION && isFullSquat) {
-                        squatState.phase = 'BOTTOM_REACHED';
-                        squatState.lastPhaseChangeTime = currentTime;
+                case 'GOING_DOWN':
+                    if (currentTime - pushupStateRef.current.lastPhaseChangeTime > MIN_PHASE_DURATION && isBottomPosition) {
+                        pushupStateRef.current.phase = 'BOTTOM_REACHED';
+                        pushupStateRef.current.lastPhaseChangeTime = currentTime;
+                        setStatus('Push yourself up');
                     }
                     break;
 
                 case 'BOTTOM_REACHED':
-                    if (isStanding) {
-                        squatState.phase = 'STANDING';
-                        squatState.lastPhaseChangeTime = currentTime;
-                        setStatus('Stand up completely');
+                    if (isUpPosition) {
+                        pushupStateRef.current.phase = 'GOING_UP';
+                        pushupStateRef.current.lastPhaseChangeTime = currentTime;
+                        setStatus('Almost there');
                     }
                     break;
 
-                case 'STANDING':
-                    if (currentTime - squatState.lastPhaseChangeTime > MIN_PHASE_DURATION && isStanding) {
+                case 'GOING_UP':
+                    if (currentTime - pushupStateRef.current.lastPhaseChangeTime > MIN_PHASE_DURATION && isUpPosition) {
                         setCount(prev => prev + 1);
                         try {
-                            audioRef.current = new Audio(pointSound);
-                            audioRef.current.currentTime = 0;
-                            audioRef.current.play();
+                            const sound = new Audio(pointSound);
+                            sound.play();
                         } catch (error) {
                             console.error('Error playing sound:', error);
                         }
-                        setStatus('Squat completed!');
-                        squatState.phase = 'INITIAL';
+                        setStatus('Pushup completed! Go down for the next one');
+                        pushupStateRef.current.phase = 'GOING_DOWN';
+                        pushupStateRef.current.lastPhaseChangeTime = currentTime;
                     }
                     break;
             }
@@ -338,17 +351,28 @@ const SitdownsExercise = (): JSX.Element => {
 
         const camera = new Camera(videoElement, {
             onFrame: async (): Promise<void> => {
-                await pose.send({ image: videoElement });
+                if (poseRef.current) {
+                    try {
+                        await poseRef.current.send({ image: videoElement });
+                    } catch (e) {
+                        console.error("Error sending frame to pose:", e);
+                    }
+                }
             },
             ...VIDEO_CONFIG
         });
-        camera.start();
+        
+        try {
+            camera.start();
+        } catch (e) {
+            console.error("Error starting camera:", e);
+        }
         cameraRef.current = camera;
 
         return () => {
             cleanup();
         };
-    }, [calculateAngle, checkStandingPosition, isExerciseActive, cleanup]);
+    }, [calculateAngle, checkPlankPosition, isExerciseActive, cleanup, isStarted]);
 
     // Calculate progress percentage for the current level
     const calculateProgress = (): number => {
@@ -365,7 +389,7 @@ const SitdownsExercise = (): JSX.Element => {
     return (
         <div className="exercise-container">
             <div className="exercise-title">
-                Sitdowns
+                Pushups
             </div>
 
             <div className="video-container">
@@ -417,7 +441,7 @@ const SitdownsExercise = (): JSX.Element => {
                         <div className="level-complete-overlay">
                             Level {currentLevelIndex} Complete!
                             {currentLevelIndex < levelGoals.length - 1 ?
-                                ` Next: ${levelGoals[currentLevelIndex]} squats` :
+                                ` Next: ${levelGoals[currentLevelIndex]} pushups` :
                                 " All levels completed!"}
                         </div>
                     )}
@@ -458,4 +482,4 @@ const SitdownsExercise = (): JSX.Element => {
     );
 };
 
-export default SitdownsExercise;
+export default PushupsExercise;

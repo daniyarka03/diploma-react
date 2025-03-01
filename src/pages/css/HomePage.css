@@ -1,0 +1,13 @@
+.home-section {
+    max-width: 500px;
+    width: 100%;
+    margin: 0 auto;
+    margin-top: 40px;
+    padding: 0 20px;
+}
+
+.home__title {
+    font-size: 36px;
+    font-weight: 700;
+    margin-bottom: 20px;
+}

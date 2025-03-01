@@ -4,7 +4,7 @@ import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import HomePage from "./pages/HomePage.tsx";
 import FitnessMenuPage from "./pages/FitnessMenuPage.tsx";
 import ProfilePage from "./pages/ProfilePage.tsx";
-import PushUpsExercise from "./pages/PushUpsExercise.tsx";
+// import PushupsExercise from "./pages/PushupsExercise.tsx";
 import SitdownsExercise from "./pages/SitdownsExercise.tsx";
 import ResultsPage from "./pages/ResultsPage.tsx";
 import TrainingHistory from "./pages/TrainingHistory.tsx";
@@ -17,7 +17,7 @@ const App: React.FC = () => {
               <Route path="/" element={<HomePage />} />
               <Route path="/menu" element={<FitnessMenuPage />} />
               <Route path="/profile" element={<ProfilePage />} />
-              <Route path="/menu/pushups" element={<PushUpsExercise />} />
+              {/*<Route path="/menu/pushups" element={<PushupsExercise />} />*/}
               <Route path="/menu/sitdowns" element={<SitdownsExercise />} />
               <Route path="/results" element={<ResultsPage />} />
               <Route path="/history" element={<TrainingHistory />} />
