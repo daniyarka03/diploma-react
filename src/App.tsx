@@ -7,6 +7,9 @@ import ProfilePage from "./pages/ProfilePage.tsx";
 import PushUpsExercise from "./pages/PushUpsExercise.tsx";
 import SitdownsExercise from "./pages/SitdownsExercise.tsx";
 import NewExerciseWithHands from "./pages/NewExerciseWithHands.tsx";
+import ResultsPage from "./pages/ResultsPage.tsx";
+import TrainingHistory from "./pages/TrainingHistory.tsx";
+import Navbar from "./components/Navbar.tsx";
 
 const App: React.FC = () => {
   return (
@@ -17,9 +20,11 @@ const App: React.FC = () => {
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/menu/pushups" element={<PushUpsExercise />} />
               <Route path="/menu/sitdowns" element={<SitdownsExercise />} />
-              <Route path="/menu/sitdowns2" element={<PosenetExample />} />
               <Route path="/newpage" element={<NewExerciseWithHands />} />
+              <Route path="/results" element={<ResultsPage />} />
+              <Route path="/history" element={<TrainingHistory />} />
           </Routes>
+          <Navbar />
       </Router>
   );
 };

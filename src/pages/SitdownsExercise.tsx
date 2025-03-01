@@ -3,6 +3,8 @@ import { Pose, POSE_CONNECTIONS } from '@mediapipe/pose';
 import { Camera } from '@mediapipe/camera_utils';
 import { useNavigate } from 'react-router-dom';
 import pointSound from '../assets/point-sound.mp3';
+// Import placeholder sounds for level completion (you'll replace these)
+import levelCompleteSound from '../assets/level-complete.mp3';
 import "./css/SitdownsExercise.css";
 import { drawConnectors, drawLandmarks } from '@mediapipe/drawing_utils';
 
@@ -20,7 +22,15 @@ const SitdownsExercise = () => {
     const [stopwatch, setStopwatch] = useState(0);
     const [isExerciseActive, setIsExerciseActive] = useState(false);
     const audioRef = useRef(new Audio('/point-sound.mp3'));
+    const levelAudioRef = useRef(new Audio('/level-complete.mp3'));
     const stopwatchRef = useRef(null);
+
+    // Add level tracking
+    const levelGoals = [20, 45, 60];
+    const [currentLevelIndex, setCurrentLevelIndex] = useState(0);
+    const [levelGoal, setLevelGoal] = useState(levelGoals[0]);
+    const [levelsCompleted, setLevelsCompleted] = useState([false, false, false]);
+    const [showLevelComplete, setShowLevelComplete] = useState(false);
 
     const VIDEO_CONFIG = {
         width: 360,  // уменьшили с 480
@@ -53,9 +63,26 @@ const SitdownsExercise = () => {
     // Функция завершения тренировки
     const finishExercise = useCallback(() => {
         cleanup();
-        // Здесь можно добавить логику сохранения результатов
-        window.location.replace('/');
-    }, [cleanup]);
+        // Save the result to localStorage
+        if (count > 0) {
+            const now = new Date();
+            const trainingResult = {
+                date: now.toISOString(),
+                count: count,
+                formattedDate: `${now.toLocaleDateString()} ${now.toLocaleTimeString()}`,
+                type: 'sitdowns'
+            };
+
+            // Get existing training history or initialize new array
+            const trainingHistory = JSON.parse(localStorage.getItem('trainingHistory') || '[]');
+            trainingHistory.push(trainingResult);
+
+            // Save updated history
+            localStorage.setItem('trainingHistory', JSON.stringify(trainingHistory));
+        }
+        // Navigate to results page with the count
+        window.location.href = `/results?count=${count}`;
+    }, [cleanup, navigate, count]);
 
     const checkStandingPosition = useCallback((landmarks) => {
         const [leftHip, rightHip, leftKnee, rightKnee, leftAnkle, rightAnkle] =
@@ -73,10 +100,50 @@ const SitdownsExercise = () => {
         return hipsAboveKnees && kneesAboveAnkles && legsAreStraight;
     }, []);
 
+    // Check for level completion when count changes
+    useEffect(() => {
+        if (!isExerciseActive) return;
+
+        // Check if current level is completed
+        if (count >= levelGoal && currentLevelIndex < levelGoals.length && !levelsCompleted[currentLevelIndex]) {
+            // Play level completion sound
+            try {
+                levelAudioRef.current = new Audio(levelCompleteSound);
+                levelAudioRef.current.play();
+            } catch (error) {
+                console.error('Error playing level complete sound:', error);
+            }
+
+            // Update levels completed
+            const newLevelsCompleted = [...levelsCompleted];
+            newLevelsCompleted[currentLevelIndex] = true;
+            setLevelsCompleted(newLevelsCompleted);
+
+            // Show level complete message
+            setShowLevelComplete(true);
+            setTimeout(() => setShowLevelComplete(false), 3000);
+
+            // If this is the max level (60 sitdowns), navigate to results
+            if (currentLevelIndex === levelGoals.length - 1) {
+                setTimeout(() => {
+                    cleanup();
+                    navigate('/results', { state: { count } });
+                }, 1500);
+                return;
+            }
+
+            // Move to next level if available
+            if (currentLevelIndex < levelGoals.length - 1) {
+                setCurrentLevelIndex(currentLevelIndex + 1);
+                setLevelGoal(levelGoals[currentLevelIndex + 1]);
+            }
+        }
+    }, [count, currentLevelIndex, isExerciseActive, levelGoal, levelGoals, levelsCompleted, cleanup, navigate]);
+
     const startExercise = () => {
         setIsStarted(true);
         setCountdown(3);
-        
+
         const countdownInterval = setInterval(() => {
             setCountdown(prev => {
                 if (prev <= 1) {
@@ -108,7 +175,7 @@ const SitdownsExercise = () => {
         };
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
-        
+
         return () => {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
@@ -121,7 +188,7 @@ const SitdownsExercise = () => {
         };
 
         window.addEventListener('beforeunload', handleBeforeUnload);
-        
+
         return () => {
             window.removeEventListener('beforeunload', handleBeforeUnload);
             cleanup();
@@ -160,28 +227,28 @@ const SitdownsExercise = () => {
             if (!results.poseLandmarks || !isExerciseActive) return;
 
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            
+
             canvasCtx.imageSmoothingEnabled = true;
             canvasCtx.imageSmoothingQuality = false;
 
             const videoWidth = results.image.width;
             const videoHeight = results.image.height;
-            
+
             // Вычисляем размеры для сохранения пропорций
             let drawWidth = canvasElement.width;
             let drawHeight = canvasElement.height;
             const aspectRatio = videoWidth / videoHeight;
-            
+
             if (aspectRatio > 1) {
                 drawHeight = drawWidth / aspectRatio;
             } else {
                 drawWidth = drawHeight * aspectRatio;
             }
-            
+
             // Центрируем изображение
             const offsetX = (canvasElement.width - drawWidth) / 2;
             const offsetY = (canvasElement.height - drawHeight) / 2;
-            
+
             canvasCtx.drawImage(results.image, offsetX, offsetY, canvasElement.width, canvasElement.height);
 
             const landmarks = results.poseLandmarks;
@@ -275,6 +342,18 @@ const SitdownsExercise = () => {
         };
     }, [calculateAngle, checkStandingPosition, isExerciseActive, cleanup]);
 
+    // Calculate progress percentage for the current level
+    const calculateProgress = () => {
+        if (currentLevelIndex === 0) {
+            return Math.min(100, (count / levelGoals[0]) * 100);
+        } else {
+            const prevGoal = levelGoals[currentLevelIndex - 1];
+            const currentGoal = levelGoals[currentLevelIndex];
+            const levelProgress = Math.min(100, ((count - prevGoal) / (currentGoal - prevGoal)) * 100);
+            return levelProgress;
+        }
+    };
+
     return (
         <div className="exercise-container">
             <div className="exercise-title">
@@ -294,7 +373,7 @@ const SitdownsExercise = () => {
                             objectFit: 'cover'
                         }}
                     />
-                    
+
                     <canvas
                         ref={canvasRef}
                         className="canvas-overlay"
@@ -309,6 +388,31 @@ const SitdownsExercise = () => {
                     <div className="counter">
                         {count}
                     </div>
+
+                    {/* Level goal indicator */}
+                    {isExerciseActive && (
+                        <div className="level-goal">
+                            <div className="goal-text">
+                                Level {currentLevelIndex + 1}: {count}/{levelGoal}
+                            </div>
+                            <div className="progress-bar-container">
+                                <div
+                                    className="progress-bar"
+                                    style={{width: `${calculateProgress()}%`}}
+                                ></div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Level complete overlay */}
+                    {showLevelComplete && (
+                        <div className="level-complete-overlay">
+                            Level {currentLevelIndex} Complete!
+                            {currentLevelIndex < levelGoals.length - 1 ?
+                                ` Next: ${levelGoals[currentLevelIndex]} squats` :
+                                " All levels completed!"}
+                        </div>
+                    )}
 
                     {countdown && (
                         <div className="countdown">

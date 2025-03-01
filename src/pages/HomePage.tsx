@@ -33,7 +33,6 @@ const HomePage = () => {
 
     return (
         <div>
-            Home
             <div>
                 {listExercises.map((exercise, index) => (
                     <Link to={"/menu/sitdowns"}>
