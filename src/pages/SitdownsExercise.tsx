@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { Pose, POSE_CONNECTIONS } from '@mediapipe/pose';
+import { Pose, POSE_CONNECTIONS, Results } from '@mediapipe/pose';
 import { Camera } from '@mediapipe/camera_utils';
 import { useNavigate } from 'react-router-dom';
 import pointSound from '../assets/point-sound.mp3';
@@ -8,44 +8,57 @@ import levelCompleteSound from '../assets/level-complete.mp3';
 import "./css/SitdownsExercise.css";
 import { drawConnectors, drawLandmarks } from '@mediapipe/drawing_utils';
 
-const SitdownsExercise = () => {
-    const navigate = useNavigate();
-    const videoRef = useRef(null);
-    const canvasRef = useRef(null);
-    const poseRef = useRef(null);
-    const cameraRef = useRef(null);
+// Define types for our component
+type LandmarkPoint = {
+  x: number;
+  y: number;
+  z: number;
+  visibility?: number;
+};
 
-    const [count, setCount] = useState(0);
-    const [status, setStatus] = useState('Press Start to begin');
-    const [isStarted, setIsStarted] = useState(false);
-    const [countdown, setCountdown] = useState(null);
-    const [stopwatch, setStopwatch] = useState(0);
-    const [isExerciseActive, setIsExerciseActive] = useState(false);
-    const audioRef = useRef(new Audio('/point-sound.mp3'));
-    const levelAudioRef = useRef(new Audio('/level-complete.mp3'));
-    const stopwatchRef = useRef(null);
+type SquatState = {
+  phase: 'INITIAL' | 'SQUATTING' | 'BOTTOM_REACHED' | 'STANDING';
+  lastPhaseChangeTime: number;
+};
+
+const SitdownsExercise = (): JSX.Element => {
+    const navigate = useNavigate();
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const poseRef = useRef<Pose | null>(null);
+    const cameraRef = useRef<Camera | null>(null);
+
+    const [count, setCount] = useState<number>(0);
+    const [status, setStatus] = useState<string>('Press Start to begin');
+    const [isStarted, setIsStarted] = useState<boolean>(false);
+    const [countdown, setCountdown] = useState<number | null>(null);
+    const [stopwatch, setStopwatch] = useState<number>(0);
+    const [isExerciseActive, setIsExerciseActive] = useState<boolean>(false);
+    const audioRef = useRef<HTMLAudioElement>(new Audio('/point-sound.mp3'));
+    const levelAudioRef = useRef<HTMLAudioElement>(new Audio('/level-complete.mp3'));
+    const stopwatchRef = useRef<number | null>(null);
 
     // Add level tracking
-    const levelGoals = [20, 45, 60];
-    const [currentLevelIndex, setCurrentLevelIndex] = useState(0);
-    const [levelGoal, setLevelGoal] = useState(levelGoals[0]);
-    const [levelsCompleted, setLevelsCompleted] = useState([false, false, false]);
-    const [showLevelComplete, setShowLevelComplete] = useState(false);
+    const levelGoals: number[] = [20, 45, 60];
+    const [currentLevelIndex, setCurrentLevelIndex] = useState<number>(0);
+    const [levelGoal, setLevelGoal] = useState<number>(levelGoals[0]);
+    const [levelsCompleted, setLevelsCompleted] = useState<boolean[]>([false, false, false]);
+    const [showLevelComplete, setShowLevelComplete] = useState<boolean>(false);
 
     const VIDEO_CONFIG = {
         width: 360,  // уменьшили с 480
         height: 360, // сохраняем квадратный формат
-        facingMode: 'user'
+        facingMode: 'user' as const
     };
 
-    const calculateAngle = useMemo(() => (a, b, c) => {
+    const calculateAngle = useMemo(() => (a: LandmarkPoint, b: LandmarkPoint, c: LandmarkPoint): number => {
         const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
-        let angle = Math.abs(radians * 180 / Math.PI);
+        const angle = Math.abs(radians * 180 / Math.PI);
         return angle > 180 ? 360 - angle : angle;
     }, []);
 
     // Функция для очистки ресурсов
-    const cleanup = useCallback(() => {
+    const cleanup = useCallback((): void => {
         if (cameraRef.current) {
             cameraRef.current.stop();
             cameraRef.current = null;
@@ -61,7 +74,7 @@ const SitdownsExercise = () => {
     }, []);
 
     // Функция завершения тренировки
-    const finishExercise = useCallback(() => {
+    const finishExercise = useCallback((): void => {
         cleanup();
         // Save the result to localStorage
         if (count > 0) {
@@ -84,7 +97,7 @@ const SitdownsExercise = () => {
         window.location.href = `/results?count=${count}`;
     }, [cleanup, navigate, count]);
 
-    const checkStandingPosition = useCallback((landmarks) => {
+    const checkStandingPosition = useCallback((landmarks: LandmarkPoint[]): boolean => {
         const [leftHip, rightHip, leftKnee, rightKnee, leftAnkle, rightAnkle] =
             [23, 24, 25, 26, 27, 28].map(index => landmarks[index]);
 
@@ -140,26 +153,26 @@ const SitdownsExercise = () => {
         }
     }, [count, currentLevelIndex, isExerciseActive, levelGoal, levelGoals, levelsCompleted, cleanup, navigate]);
 
-    const startExercise = () => {
+    const startExercise = (): void => {
         setIsStarted(true);
         setCountdown(3);
 
         const countdownInterval = setInterval(() => {
             setCountdown(prev => {
-                if (prev <= 1) {
+                if (prev !== null && prev <= 1) {
                     clearInterval(countdownInterval);
                     setIsExerciseActive(true);
-                    stopwatchRef.current = setInterval(() => {
+                    stopwatchRef.current = window.setInterval(() => {
                         setStopwatch(prev => prev + 1);
                     }, 1000);
                     return null;
                 }
-                return prev - 1;
+                return prev !== null ? prev - 1 : null;
             });
         }, 1000);
     };
 
-    const formatTime = (totalSeconds) => {
+    const formatTime = (totalSeconds: number): string => {
         const minutes = Math.floor(totalSeconds / 60);
         const seconds = totalSeconds % 60;
         return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
@@ -167,7 +180,7 @@ const SitdownsExercise = () => {
 
     // Эффект для обработки visibility change
     useEffect(() => {
-        const handleVisibilityChange = () => {
+        const handleVisibilityChange = (): void => {
             if (document.hidden && isExerciseActive) {
                 cleanup();
                 navigate('/');
@@ -183,7 +196,7 @@ const SitdownsExercise = () => {
 
     // Эффект для обработки beforeunload
     useEffect(() => {
-        const handleBeforeUnload = () => {
+        const handleBeforeUnload = (): void => {
             cleanup();
         };
 
@@ -198,21 +211,22 @@ const SitdownsExercise = () => {
     useEffect(() => {
         const videoElement = videoRef.current;
         const canvasElement = canvasRef.current;
-        const canvasCtx = canvasElement.getContext('2d');
-
+        
         if (!videoElement || !canvasElement) return;
+        
+        const canvasCtx = canvasElement.getContext('2d');
+        if (!canvasCtx) return;
 
         canvasElement.width = VIDEO_CONFIG.width;
         canvasElement.height = VIDEO_CONFIG.height;
 
-
-        const squatState = {
+        const squatState: SquatState = {
             phase: 'INITIAL',
             lastPhaseChangeTime: Date.now()
         };
 
         const pose = new Pose({
-            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
+            locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
         });
 
         pose.setOptions({
@@ -223,13 +237,12 @@ const SitdownsExercise = () => {
             minTrackingConfidence: 0.5,
         });
 
-        const onResults = (results) => {
+        const onResults = (results: Results): void => {
             if (!results.poseLandmarks || !isExerciseActive) return;
 
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
             canvasCtx.imageSmoothingEnabled = true;
-            canvasCtx.imageSmoothingQuality = false;
 
             const videoWidth = results.image.width;
             const videoHeight = results.image.height;
@@ -329,7 +342,7 @@ const SitdownsExercise = () => {
         poseRef.current = pose;
 
         const camera = new Camera(videoElement, {
-            onFrame: async () => {
+            onFrame: async (): Promise<void> => {
                 await pose.send({ image: videoElement });
             },
             ...VIDEO_CONFIG
@@ -343,7 +356,7 @@ const SitdownsExercise = () => {
     }, [calculateAngle, checkStandingPosition, isExerciseActive, cleanup]);
 
     // Calculate progress percentage for the current level
-    const calculateProgress = () => {
+    const calculateProgress = (): number => {
         if (currentLevelIndex === 0) {
             return Math.min(100, (count / levelGoals[0]) * 100);
         } else {

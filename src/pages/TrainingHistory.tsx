@@ -1,6 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './css/TrainingHistory.css';
+
+interface Session {
+    date: string;
+    formattedDate: string;
+    type: string;
+    count: number;
+}
 
 const TrainingHistory = () => {
     const navigate = useNavigate();
@@ -11,8 +18,9 @@ const TrainingHistory = () => {
         const trainingHistory = JSON.parse(localStorage.getItem('trainingHistory') || '[]');
 
         // Sort by date (newest first)
-        trainingHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
-
+        // trainingHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
+// Sort by date (newest first)
+        trainingHistory.sort((a: Session, b: Session) => new Date(b.date).getTime() - new Date(a.date).getTime());
         setHistory(trainingHistory);
     }, []);
 
@@ -26,7 +34,7 @@ const TrainingHistory = () => {
                 </div>
             ) : (
                 <div className="history-list">
-                    {history.map((session, index) => (
+                    {history.map((session: Session, index) => (
                         <div className="history-item" key={index}>
                             <div className="history-date">{session.formattedDate}</div>
                             <div className="history-type">{session.type}</div>
