@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { Pose, POSE_CONNECTIONS, Results } from '@mediapipe/pose';
+import { Pose, Results } from '@mediapipe/pose';
 import { Camera } from '@mediapipe/camera_utils';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import pointSound from '../assets/point-sound.mp3';
-// Import placeholder sounds for level completion (you'll replace these)
 import levelCompleteSound from '../assets/level-complete.mp3';
 import "./css/SitdownsExercise.css";
 import { drawConnectors, drawLandmarks } from '@mediapipe/drawing_utils';
+import Stats from 'stats.js';
 
-// Define types for our component
+
 type LandmarkPoint = {
   x: number;
   y: number;
@@ -23,10 +23,14 @@ type SquatState = {
 
 const SitdownsExercise = (): JSX.Element => {
     const navigate = useNavigate();
+    const location = useLocation(); 
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const poseRef = useRef<Pose | null>(null);
     const cameraRef = useRef<Camera | null>(null);
+    const statsFpsRef = useRef<Stats | null>(null); // Для FPS
+    const statsMsRef = useRef<Stats | null>(null);  // Для ms
+    const statsMbRef = useRef<Stats | null>(null);  // Для MB
 
     const [count, setCount] = useState<number>(0);
     const [status, setStatus] = useState<string>('Press Start to begin');
@@ -37,8 +41,8 @@ const SitdownsExercise = (): JSX.Element => {
     const audioRef = useRef<HTMLAudioElement>(new Audio('/point-sound.mp3'));
     const levelAudioRef = useRef<HTMLAudioElement>(new Audio('/level-complete.mp3'));
     const stopwatchRef = useRef<number | null>(null);
+    const isPageVisibleRef = useRef<boolean>(true);
 
-    // Add level tracking
     const levelGoals: number[] = [20, 45, 60];
     const [currentLevelIndex, setCurrentLevelIndex] = useState<number>(0);
     const [levelGoal, setLevelGoal] = useState<number>(levelGoals[0]);
@@ -50,6 +54,44 @@ const SitdownsExercise = (): JSX.Element => {
         height: 360, // сохраняем квадратный формат
         facingMode: 'user' as const
     };
+
+    useEffect(() => {
+        // Панель для FPS
+        const statsFps = new Stats();
+        statsFps.showPanel(0); // 0 = FPS
+        statsFps.dom.style.position = 'absolute';
+        statsFps.dom.style.left = '0px';
+        statsFps.dom.style.top = '0px';
+        document.body.appendChild(statsFps.dom);
+        statsFpsRef.current = statsFps;
+
+        // Панель для ms
+        const statsMs = new Stats();
+        statsMs.showPanel(1); // 1 = ms
+        statsMs.dom.style.position = 'absolute';
+        statsMs.dom.style.left = '80px'; // Сдвиг вправо
+        statsMs.dom.style.top = '0px';
+        document.body.appendChild(statsMs.dom);
+        statsMsRef.current = statsMs;
+
+        // Панель для MB
+        const statsMb = new Stats();
+        statsMb.showPanel(2); // 2 = MB
+        statsMb.dom.style.position = 'absolute';
+        statsMb.dom.style.left = '160px'; // Еще правее
+        statsMb.dom.style.top = '0px';
+        document.body.appendChild(statsMb.dom);
+        statsMbRef.current = statsMb;
+
+        // Очистка при размонтировании
+        return () => {
+            [statsFps, statsMs, statsMb].forEach(stats => {
+                if (stats.dom && document.body.contains(stats.dom)) {
+                    document.body.removeChild(stats.dom);
+                }
+            });
+        };
+    }, []);
 
     const calculateAngle = useMemo(() => (a: LandmarkPoint, b: LandmarkPoint, c: LandmarkPoint): number => {
         const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
@@ -73,6 +115,21 @@ const SitdownsExercise = (): JSX.Element => {
         }
     }, []);
 
+    // Функция для остановки камеры и обработки позы
+    const stopCamera = useCallback((): void => {
+        if (cameraRef.current) {
+            cameraRef.current.stop();
+        }
+        // Не закрываем Pose полностью, чтобы можно было быстро возобновить
+    }, []);
+
+    // Функция для возобновления работы камеры
+    const resumeCamera = useCallback((): void => {
+        if (videoRef.current && cameraRef.current && isExerciseActive && isPageVisibleRef.current) {
+            cameraRef.current.start();
+        }
+    }, [isExerciseActive]);
+
     const finishExercise = useCallback((): void => {
         cleanup();
         if (count > 0) {
@@ -90,7 +147,7 @@ const SitdownsExercise = (): JSX.Element => {
             localStorage.setItem('trainingHistory', JSON.stringify(trainingHistory));
         }
         window.location.href = `/results?count=${count}`;
-    }, [cleanup, navigate, count]);
+    }, [cleanup, count]);
 
     const checkStandingPosition = useCallback((landmarks: LandmarkPoint[]): boolean => {
         const [leftHip, rightHip, leftKnee, rightKnee, leftAnkle, rightAnkle] =
@@ -176,9 +233,16 @@ const SitdownsExercise = (): JSX.Element => {
     // Эффект для обработки visibility change
     useEffect(() => {
         const handleVisibilityChange = (): void => {
-            if (document.hidden && isExerciseActive) {
-                cleanup();
-                navigate('/');
+            if (document.hidden) {
+                isPageVisibleRef.current = false;
+                if (isExerciseActive) {
+                    stopCamera(); // Останавливаем камеру вместо полной очистки ресурсов
+                }
+            } else {
+                isPageVisibleRef.current = true;
+                if (isExerciseActive) {
+                    resumeCamera(); // Возобновляем работу камеры
+                }
             }
         };
 
@@ -187,7 +251,15 @@ const SitdownsExercise = (): JSX.Element => {
         return () => {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, [cleanup, navigate, isExerciseActive]);
+    }, [stopCamera, resumeCamera, isExerciseActive]);
+
+    // Эффект для отслеживания изменений URL (навигации в навбаре)
+    useEffect(() => {
+        return () => {
+            // Выполнится при размонтировании компонента или изменении зависимостей (location)
+            cleanup();
+        };
+    }, [location.pathname, cleanup]);
 
     // Эффект для обработки beforeunload
     useEffect(() => {
@@ -232,8 +304,21 @@ const SitdownsExercise = (): JSX.Element => {
             minTrackingConfidence: 0.5,
         });
 
+        const CUSTOM_CONNECTIONS: [number, number][] = [
+            [23, 25], // Left hip to left knee
+            [25, 27], // Left knee to left ankle
+            [24, 26], // Right hip to right knee
+            [26, 28], // Right knee to right ankle
+        ];
+
         const onResults = (results: Results): void => {
-            if (!results.poseLandmarks || !isExerciseActive) return;
+            statsFpsRef.current?.begin();
+            statsMsRef.current?.begin();
+            statsMbRef.current?.begin();
+
+            if (!results.poseLandmarks || !isExerciseActive) {
+                
+            };
 
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
@@ -263,21 +348,26 @@ const SitdownsExercise = (): JSX.Element => {
             const [leftHip, leftKnee, leftAnkle, rightHip, rightKnee, rightAnkle] =
                 [23, 25, 27, 24, 26, 28].map(index => landmarks[index]);
 
-            drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {
-                color: '#00FF00',
-                lineWidth: 3,
-            });
-            drawLandmarks(canvasCtx, results.poseLandmarks, {
-                color: '#FF0000',
-                lineWidth: 1.5,
-                radius: 3,
-            });
+                // Фильтруем только нужные точки (23–28)
+        const squatLandmarks = landmarks.filter((_, index) =>
+            [23, 24, 25, 26, 27, 28].includes(index)
+        );
+
+        drawConnectors(canvasCtx, landmarks, CUSTOM_CONNECTIONS, {
+            color: '#00FF00',
+            lineWidth: 3,
+        });
+        drawLandmarks(canvasCtx, squatLandmarks, {
+            color: '#FF0000',
+            lineWidth: 1.5,
+            radius: 3,
+        });
 
             const leftKneeAngle = calculateAngle(leftHip, leftKnee, leftAnkle);
             const rightKneeAngle = calculateAngle(rightHip, rightKnee, rightAnkle);
 
             const currentTime = Date.now();
-            const MIN_PHASE_DURATION = 500;
+            const MIN_PHASE_DURATION = 150; // Минимальная длительность фазы в мс
 
             const isFullSquat =
                 leftKneeAngle < 130 &&
@@ -331,6 +421,9 @@ const SitdownsExercise = (): JSX.Element => {
                     }
                     break;
             }
+            statsFpsRef.current?.end();
+            statsMsRef.current?.end();
+            statsMbRef.current?.end();
         };
 
         pose.onResults(onResults);
@@ -342,7 +435,11 @@ const SitdownsExercise = (): JSX.Element => {
             },
             ...VIDEO_CONFIG
         });
-        camera.start();
+        
+        // Запускаем камеру только если страница видима
+        if (isPageVisibleRef.current) {
+            camera.start();
+        }
         cameraRef.current = camera;
 
         return () => {

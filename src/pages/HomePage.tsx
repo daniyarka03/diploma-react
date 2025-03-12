@@ -25,7 +25,7 @@ const HomePage = () => {
 
                 if (sitdownsExercises.length > 0) {
                     // Сортируем по дате (от новейшего к старому)
-                    sitdownsExercises.sort((a, b) => new Date(b.date) - new Date(a.date));
+                    sitdownsExercises.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
                     const latestSitdowns = sitdownsExercises[0];
 
