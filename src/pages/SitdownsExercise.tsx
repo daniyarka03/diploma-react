@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { Pose, Results } from '@mediapipe/pose';
+import * as poseDetection from '@mediapipe/pose';
+import { Results, Pose } from '@mediapipe/pose';
 import { Camera } from '@mediapipe/camera_utils';
 import { useNavigate, useLocation } from 'react-router-dom';
 import pointSound from '../assets/point-sound.mp3';
@@ -291,10 +292,10 @@ const SitdownsExercise = (): JSX.Element => {
             phase: 'INITIAL',
             lastPhaseChangeTime: Date.now()
         };
-
-        const pose = new Pose({
+        const pose = new poseDetection.Pose({
             locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
         });
+        
 
         pose.setOptions({
             modelComplexity: 0,

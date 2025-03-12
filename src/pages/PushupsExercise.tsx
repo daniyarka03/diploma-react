@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { Pose, POSE_CONNECTIONS, Results } from '@mediapipe/pose';
 import { Camera } from '@mediapipe/camera_utils';
+import * as poseDetection from '@mediapipe/pose';
 import { useNavigate } from 'react-router-dom';
 import pointSound from '../assets/point-sound.mp3';
 import levelCompleteSound from '../assets/level-complete.mp3';
@@ -247,9 +248,9 @@ const PushupsExercise = (): JSX.Element => {
         // Only initialize if we don't already have a pose instance
         console.log('Initializing camera and pose detection');
         
-        const pose = new Pose({
-            locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
-        });
+        const pose = new poseDetection.Pose({
+                   locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
+               });
 
         pose.setOptions({
             modelComplexity: 0,
