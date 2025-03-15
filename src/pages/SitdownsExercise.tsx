@@ -123,10 +123,22 @@ const SitdownsExercise = (): JSX.Element => {
         }
         // Не закрываем Pose полностью, чтобы можно было быстро возобновить
     }, []);
-
+    const resetPoseDetection = async (): Promise<void> => {
+        if (poseRef.current) {
+            try {
+                await poseRef.current.reset();
+                console.log("Pose detection reset");
+            } catch (error) {
+                console.error("Error resetting pose detection:", error);
+            }
+        }
+    };
     // Функция для возобновления работы камеры
-    const resumeCamera = useCallback((): void => {
+    const resumeCamera = useCallback(async (): Promise<void> => {
         if (videoRef.current && cameraRef.current && isExerciseActive && isPageVisibleRef.current) {
+            // First reset pose detection to help it recover
+            await resetPoseDetection();
+            // Then restart camera
             cameraRef.current.start();
         }
     }, [isExerciseActive]);
@@ -233,22 +245,25 @@ const SitdownsExercise = (): JSX.Element => {
 
     // Эффект для обработки visibility change
     useEffect(() => {
-        const handleVisibilityChange = (): void => {
+        const handleVisibilityChange = async (): Promise<void> => {
             if (document.hidden) {
                 isPageVisibleRef.current = false;
                 if (isExerciseActive) {
-                    stopCamera(); // Останавливаем камеру вместо полной очистки ресурсов
+                    stopCamera();
                 }
             } else {
                 isPageVisibleRef.current = true;
                 if (isExerciseActive) {
-                    resumeCamera(); // Возобновляем работу камеры
+                    // Add small delay before resuming to ensure resources are ready
+                    setTimeout(async () => {
+                        await resumeCamera();
+                    }, 300);
                 }
             }
         };
-
+    
         document.addEventListener('visibilitychange', handleVisibilityChange);
-
+    
         return () => {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
@@ -311,104 +326,115 @@ const SitdownsExercise = (): JSX.Element => {
             [24, 26], // Right hip to right knee
             [26, 28], // Right knee to right ankle
         ];
-
+      
         const onResults = (results: Results): void => {
             statsFpsRef.current?.begin();
             statsMsRef.current?.begin();
             statsMbRef.current?.begin();
-
+        
             if (!results.poseLandmarks || !isExerciseActive) {
-                
+                return;
             };
-
+        
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-
             canvasCtx.imageSmoothingEnabled = true;
-
+        
+            // Draw the video frame
             const videoWidth = results.image.width;
             const videoHeight = results.image.height;
-
-            // Вычисляем размеры для сохранения пропорций
             let drawWidth = canvasElement.width;
             let drawHeight = canvasElement.height;
             const aspectRatio = videoWidth / videoHeight;
-
+        
             if (aspectRatio > 1) {
                 drawHeight = drawWidth / aspectRatio;
             } else {
                 drawWidth = drawHeight * aspectRatio;
             }
-
-            // Центрируем изображение
+        
             const offsetX = (canvasElement.width - drawWidth) / 2;
             const offsetY = (canvasElement.height - drawHeight) / 2;
-
+        
             canvasCtx.drawImage(results.image, offsetX, offsetY, canvasElement.width, canvasElement.height);
-
+        
             const landmarks = results.poseLandmarks;
             const [leftHip, leftKnee, leftAnkle, rightHip, rightKnee, rightAnkle] =
                 [23, 25, 27, 24, 26, 28].map(index => landmarks[index]);
-
-                // Фильтруем только нужные точки (23–28)
-        const squatLandmarks = landmarks.filter((_, index) =>
-            [23, 24, 25, 26, 27, 28].includes(index)
-        );
-
-        drawConnectors(canvasCtx, landmarks, CUSTOM_CONNECTIONS, {
-            color: '#00FF00',
-            lineWidth: 3,
-        });
-        drawLandmarks(canvasCtx, squatLandmarks, {
-            color: '#FF0000',
-            lineWidth: 1.5,
-            radius: 3,
-        });
-
+        
+            // Фильтруем только нужные точки (23–28)
+            const squatLandmarks = landmarks.filter((_, index) =>
+                [23, 24, 25, 26, 27, 28].includes(index)
+            );
+        
+            drawConnectors(canvasCtx, landmarks, CUSTOM_CONNECTIONS, {
+                color: '#00FF00',
+                lineWidth: 3,
+            });
+            drawLandmarks(canvasCtx, squatLandmarks, {
+                color: '#FF0000',
+                lineWidth: 1.5,
+                radius: 3,
+            });
+        
             const leftKneeAngle = calculateAngle(leftHip, leftKnee, leftAnkle);
             const rightKneeAngle = calculateAngle(rightHip, rightKnee, rightAnkle);
-
+        
             const currentTime = Date.now();
-            const MIN_PHASE_DURATION = 150; // Минимальная длительность фазы в мс
-
-            const isFullSquat =
-                leftKneeAngle < 130 &&
-                rightKneeAngle < 130 &&
-                leftKnee.y > leftHip.y &&
-                rightKnee.y > rightHip.y &&
-                leftAnkle.y > leftHip.y &&
-                rightAnkle.y > rightHip.y;
-
-            const isStanding = checkStandingPosition(landmarks);
-
+            const MIN_PHASE_DURATION = 200; // Умеренная длительность фазы
+        
+            // Более сбалансированные определения
+            const isFullSquat = 
+                leftKneeAngle < 140 && 
+                rightKneeAngle < 140 && 
+                leftKnee.y > leftHip.y && 
+                rightKnee.y > rightHip.y;
+        
+            const isStanding = 
+                leftKneeAngle > 150 && 
+                rightKneeAngle > 150 && 
+                leftHip.y < leftKnee.y && 
+                rightHip.y < rightKnee.y;
+        
+            // Debug info to console
+            console.log(`Phase: ${squatState.phase}, Left: ${Math.round(leftKneeAngle)}°, Right: ${Math.round(rightKneeAngle)}°, Squat: ${isFullSquat}, Stand: ${isStanding}`);
+        
             switch (squatState.phase) {
                 case 'INITIAL':
+                    // In initial phase, we're waiting for either a standing position or a squat
                     if (isStanding) {
                         setStatus('Start squatting');
-                    }
-                    if (isFullSquat) {
+                    } else if (isFullSquat && currentTime - squatState.lastPhaseChangeTime > MIN_PHASE_DURATION) {
+                        // If they're already in a squat position, transition to SQUATTING
                         squatState.phase = 'SQUATTING';
                         squatState.lastPhaseChangeTime = currentTime;
-                        setStatus('Low point of squat');
+                        setStatus('Low position detected');
+                        console.log("-> SQUATTING");
                     }
                     break;
-
+        
                 case 'SQUATTING':
-                    if (currentTime - squatState.lastPhaseChangeTime > MIN_PHASE_DURATION && isFullSquat) {
+                    // In squatting phase, we're at the bottom of the squat
+                    if (isFullSquat && currentTime - squatState.lastPhaseChangeTime > MIN_PHASE_DURATION) {
                         squatState.phase = 'BOTTOM_REACHED';
                         squatState.lastPhaseChangeTime = currentTime;
+                        setStatus('Now stand up');
+                        console.log("-> BOTTOM_REACHED");
                     }
                     break;
-
+        
                 case 'BOTTOM_REACHED':
-                    if (isStanding) {
+                    // We're waiting for them to stand up
+                    if (isStanding && currentTime - squatState.lastPhaseChangeTime > MIN_PHASE_DURATION) {
                         squatState.phase = 'STANDING';
                         squatState.lastPhaseChangeTime = currentTime;
-                        setStatus('Stand up completely');
+                        setStatus('Good! Stand up completely');
+                        console.log("-> STANDING");
                     }
                     break;
-
+        
                 case 'STANDING':
-                    if (currentTime - squatState.lastPhaseChangeTime > MIN_PHASE_DURATION && isStanding) {
+                    // They've stood up, count the rep
+                    if (isStanding && currentTime - squatState.lastPhaseChangeTime > MIN_PHASE_DURATION) {
                         setCount(prev => prev + 1);
                         try {
                             audioRef.current = new Audio(pointSound);
@@ -417,11 +443,14 @@ const SitdownsExercise = (): JSX.Element => {
                         } catch (error) {
                             console.error('Error playing sound:', error);
                         }
-                        setStatus('Squat completed!');
+                        setStatus('Squat completed! Do another');
                         squatState.phase = 'INITIAL';
+                        squatState.lastPhaseChangeTime = currentTime;
+                        console.log("-> INITIAL (rep counted)");
                     }
                     break;
             }
+        
             statsFpsRef.current?.end();
             statsMsRef.current?.end();
             statsMbRef.current?.end();
@@ -432,9 +461,19 @@ const SitdownsExercise = (): JSX.Element => {
 
         const camera = new Camera(videoElement, {
             onFrame: async (): Promise<void> => {
-                await pose.send({ image: videoElement });
+                if (poseRef.current) {
+                    try {
+                        await poseRef.current.send({ image: videoElement });
+                    } catch (error) {
+                        console.error("Error in pose detection:", error);
+                        // Try to reset pose detection on error
+                        resetPoseDetection();
+                    }
+                }
             },
-            ...VIDEO_CONFIG
+            width: VIDEO_CONFIG.width,
+            height: VIDEO_CONFIG.height,
+            facingMode: VIDEO_CONFIG.facingMode
         });
         
         // Запускаем камеру только если страница видима
